@@ -45,8 +45,6 @@ def find_window_by_partial_title(partial_title):
         return True
 
     hwnd_list = []
-    if hwnd_list:
-        return hwnd_list
     win32gui.EnumWindows(callback, hwnd_list)
     return hwnd_list
 

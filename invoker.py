@@ -1,11 +1,13 @@
 import json
 import urllib.request
-from PyDictionary import PyDictionary
+# from PyDictionary import PyDictionary
 import requests
 from bs4 import BeautifulSoup
 from PyMultiDictionary import MultiDictionary
-from deep_translator import GoogleTranslator
+# from deep_translator import GoogleTranslator
+from googletrans import Translator
 import pyperclip
+
 
 
 def request(action, params):
@@ -25,6 +27,50 @@ def invoke(action, params):
     if response['error'] is not None:
         raise Exception(response['error'])
     return response['result']
+
+def translate_word(word):
+    url = "https://api.mymemory.translated.net/get"
+
+    params = {
+        "q": word,
+        "langpair": "en|de"
+    }
+
+    response = requests.get(url, params=params, timeout=10)
+    response.raise_for_status()
+
+    data = response.json()
+    return data["responseData"]["translatedText"]
+
+
+def get_meaning(word):
+    url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+
+    data = response.json()
+
+    meanings = []
+
+    for meaning in data[0].get("meanings", []):
+        part_of_speech = meaning.get("partOfSpeech", "")
+
+        for definition in meaning.get("definitions", []):
+            text = definition.get("definition", "")
+            example = definition.get("example")
+
+            if text:
+                if example:
+                    meanings.append(
+                        f"{part_of_speech}: {text}\nExample: {example}"
+                    )
+                else:
+                    meanings.append(
+                        f"{part_of_speech}: {text}"
+                    )
+
+    return "\n\n".join(meanings)
 
 
 def get_synonyms(term):
@@ -70,15 +116,18 @@ def empty_check(synonym_list):
 
 
 def fill_anki_card():
-    dicc = PyDictionary()
+    # dicc = PyDictionary()
     multi_dicc = MultiDictionary()
     clipboard_content = pyperclip.paste()
     sentence = extract_first_part(clipboard_content)
     print("The Sentence you provided: " + sentence)
     word = input('Please input the word you want as an Anki card:\n')
-    meaning = dicc.meaning(word)
-    meaning = prettify_dict(meaning)
-    translation = GoogleTranslator(source='en', target='de').translate(word)
+    # meaning = dicc.meaning(word)
+    # meaning = prettify_dict(meaning)
+    meaning = get_meaning(word)
+    # translation = GoogleTranslator(source='en', target='de').translate(word)
+    translation = translate_word(word)
+
     synonyms = multi_dicc.synonym('en', word)
 
     add_note = {
