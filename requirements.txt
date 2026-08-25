@@ -1,0 +1,7 @@
+google-genai
+pydantic
+requests
+pyperclip
+PyMultiDictionary
+pywin32
+pynput

@@ -1,47 +1,41 @@
 import json
 import urllib.request
-# from PyDictionary import PyDictionary
+
 import requests
-from bs4 import BeautifulSoup
-from PyMultiDictionary import MultiDictionary
-# from deep_translator import GoogleTranslator
-from googletrans import Translator
 import pyperclip
 
+from PyMultiDictionary import MultiDictionary
 
-
-def request(action, params):
-    return {'action': action, 'params': params, 'version': 6}
-
+from ai import analyze_word
 
 def invoke(action, params):
-    request_json = json.dumps(request(action, **params)).encode('utf-8')
-    print(request_json)
-    response = json.load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8765', request_json)))
-    if len(response) != 2:
-        raise Exception('response has an unexpected number of fields')
-    if 'error' not in response:
-        raise Exception('response is missing required error field')
-    if 'result' not in response:
-        raise Exception('response is missing required result field')
-    if response['error'] is not None:
-        raise Exception(response['error'])
-    return response['result']
-
-def translate_word(word):
-    url = "https://api.mymemory.translated.net/get"
-
-    params = {
-        "q": word,
-        "langpair": "en|de"
+    request_data = {
+        "action": action,
+        "params": params,
+        "version": 6
     }
 
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
+    request_json = json.dumps(request_data).encode("utf-8")
 
-    data = response.json()
-    return data["responseData"]["translatedText"]
+    response = json.load(
+        urllib.request.urlopen(
+            urllib.request.Request(
+                "http://127.0.0.1:8765",
+                request_json
+            )
+        )
+    )
 
+    if "error" not in response:
+        raise Exception("Response is missing required error field")
+
+    if "result" not in response:
+        raise Exception("Response is missing required result field")
+
+    if response["error"] is not None:
+        raise Exception(response["error"])
+
+    return response["result"]
 
 def get_meaning(word):
     url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
@@ -61,37 +55,30 @@ def get_meaning(word):
             example = definition.get("example")
 
             if text:
-                if example:
-                    meanings.append(
-                        f"{part_of_speech}: {text}\nExample: {example}"
-                    )
-                else:
-                    meanings.append(
-                        f"{part_of_speech}: {text}"
-                    )
+                meanings.append({
+                    "part_of_speech": part_of_speech,
+                    "definition": text,
+                    "example": example
+                })
 
-    return "\n\n".join(meanings)
+    return meanings
 
+def format_meanings(meanings):
+    formatted = []
 
-def get_synonyms(term):
-    response = requests.get('https://www.thesaurus.com/browse/{}'.format(term))
-    soup = BeautifulSoup(response.text, 'lxml')
-    soup.find('section', {'class': 'css-17ofzyv e1ccqdb60'})
-    return [span.text for span in soup.findAll('a', {'class': 'css-1kg1yv8 eh475bn0'})]
-    # 'css-1gyuw4i eh475bn0' for less relevant synonyms
+    for i, meaning in enumerate(meanings, start=1):
+        part_of_speech = meaning["part_of_speech"]
+        definition = meaning["definition"]
+        example = meaning["example"]
 
+        text = f"{i}. {part_of_speech}: {definition}"
 
-def prettify_dict(input_dict):
-    # Convert each key-value pair to a formatted string
-    formatted_items = [f"{key}: {value}" for key, value in input_dict.items()]
+        if example:
+            text += f"\n   Example: {example}"
 
-    # Join the formatted strings with commas
-    result_string = ", ".join(formatted_items)
+        formatted.append(text)
 
-    result_string = result_string.replace('], ', ']\n')
-
-    return result_string
-
+    return "\n\n".join(formatted)
 
 def extract_first_part(text):
     # Find the index of the first newline character
@@ -106,57 +93,75 @@ def extract_first_part(text):
     return first_part.strip()  # Remove leading and trailing whitespaces
 
 
-def empty_check(synonym_list):
-    empty_string = ""
-    print(synonym_list)
-    if synonym_list:
-        return synonym_list
-    else:
-        return empty_string
-
-
 def fill_anki_card():
-    # dicc = PyDictionary()
     multi_dicc = MultiDictionary()
+
     clipboard_content = pyperclip.paste()
     sentence = extract_first_part(clipboard_content)
-    print("The Sentence you provided: " + sentence)
-    word = input('Please input the word you want as an Anki card:\n')
-    # meaning = dicc.meaning(word)
-    # meaning = prettify_dict(meaning)
-    meaning = get_meaning(word)
-    # translation = GoogleTranslator(source='en', target='de').translate(word)
-    translation = translate_word(word)
 
-    synonyms = multi_dicc.synonym('en', word)
+    print("\nThe sentence you provided:")
+    print(sentence)
 
-    add_note = {
-        "params": {
-            "note": {
-                "deckName": "test1",
-                "modelName": "Kindle",
-                "fields": {
-                    "Front": word,
-                    "Meaning": f'''{meaning}''',
-                    "Sentence": sentence,
-                    "Synonyms": f'{empty_check(synonyms)}',
-                    "Translation": translation,
+    word = input(
+        "\nPlease input the word you want as an Anki card:\n"
+    ).strip()
 
-                },
-                "options": {
-                    "allowDuplicate": False,
-                    "duplicateScope": "deck",
-                    "duplicateScopeOptions": {
-                        "deckName": "Default",
-                        "checkChildren": False,
-                        "checkAllModels": False
-                    }
-                },
-                "tags": [
-                    "Kindle Import"
-                ]
+    if not word:
+        raise ValueError("No word was provided.")
 
-            }
+    print("\nLooking up dictionary definitions...")
+
+    meanings = get_meaning(word)
+
+    if not meanings:
+        raise ValueError(
+            f"No dictionary meanings found for '{word}'."
+        )
+
+    dictionary_text = format_meanings(meanings)
+
+    print("\nGetting candidate synonyms...")
+
+    synonyms = multi_dicc.synonym("en", word)
+
+    print("\nAnalyzing word in context with Gemini...")
+
+    result = analyze_word(
+        word=word,
+        sentence=sentence,
+        dictionary_meanings=dictionary_text,
+        candidate_synonyms=synonyms,
+    )
+
+    print("\nGemini selected:")
+    print(f"Meaning: {result.meaning}")
+    print(f"Part of speech: {result.part_of_speech}")
+    print(f"Synonyms: {result.synonyms}")
+    print(f"Translation: {result.translation}")
+
+    return {
+        "note": {
+            "deckName": "test1",
+            "modelName": "Kindle",
+            "fields": {
+                "Front": word,
+                "Meaning": result.meaning,
+                "Sentence": sentence,
+                "Synonyms": ", ".join(result.synonyms),
+                "Translation": result.translation,
+                "PartOfSpeech": result.part_of_speech.value,
+            },
+            "options": {
+                "allowDuplicate": False,
+                "duplicateScope": "deck",
+                "duplicateScopeOptions": {
+                    "deckName": "Default",
+                    "checkChildren": False,
+                    "checkAllModels": False
+                }
+            },
+            "tags": [
+                "Kindle Import"
+            ]
         }
     }
-    return add_note
