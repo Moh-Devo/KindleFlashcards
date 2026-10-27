@@ -1,5 +1,4 @@
 # KindleFlashcards
-#### Video Demo:  <URL HERE>
 #### Description:
 
 This program creates contextual English vocabulary
